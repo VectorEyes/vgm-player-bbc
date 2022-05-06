@@ -17,15 +17,15 @@
 .VGM_ZP SKIP 8 ; must be in zero page 
 
 ; declare zero page registers used for each compressed stream (they are context switched)
-lz_zp = VGM_ZP + 0
-zp_stream_src   = lz_zp + 0    ; stream data ptr LO/HI          *** ONLY USED 1-2 TIMES PER FRAME ***, not worth ZP?
 ; none of the following have to be zp for indirect addressing reasons.
-zp_literal_cnt  = lz_zp + 2    ; literal count LO/HI, 7 references
-zp_match_cnt    = lz_zp + 4    ; match count LO/HI, 10 references
+zp_literal_cnt  = VGM_ZP + 0    ; literal count LO/HI, 7 references
+zp_match_cnt    = VGM_ZP + 2    ; match count LO/HI, 10 references
 ; temporary vars
-zp_temp = lz_zp + 6 ; 2 bytes ; used only by lz_decode_byte and lz_fetch_count, does not need to be zp apart from memory/speed reasons
+zp_temp = VGM_ZP + 4 ; 2 bytes ; used only by lz_decode_byte and lz_fetch_count, does not need to be zp apart from memory/speed reasons
 
-
+; Not context-switched per stream.
+lz_zp = VGM_ZP + 6
+zp_stream_src   = lz_zp + 0    ; stream data ptr LO/HI          *** ONLY USED 1-2 TIMES PER FRAME ***, not worth ZP?
 
 ; The following vars only apply if Huffman support is enabled
 IF ENABLE_HUFFMAN

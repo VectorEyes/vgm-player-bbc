@@ -58,15 +58,70 @@ ENDIF
 {
     ; stash the 2kb buffer address
     sta vgm_buffers
-    lda #0
-    ror a  ; move carry into A
-    sta vgm_loop
  
+    ; For VGX we simply increment stream source by 4, skipping the 'VGX<0>' magic number header
     ; stash the data source addr for looping
-    stx vgm_source+0
-    sty vgm_source+1
+    ;stx zp_stream_src+0
+    ;sty zp_stream_src+1
+
+    txa
+    CLC
+    ADC #4
+    STA zp_stream_src+0
+    BCC storeHighStreamSourceAddress
+    INY
+    .storeHighStreamSourceAddress
+    STY zp_stream_src+1
+
+   ; read the block headers (size)
+    ldx #0
+    ; clear vgm finished flag
+    stx vgm_finished
+.block_loop
+ if 0
+    ; get start address of encoded data for vgm_stream[x] (block ptr+4)
+    lda zp_block_data+0
+    clc
+    adc #4  ; skip block header
+    sta vgm_streams + VGM_STREAMS*0, x  ; zp_stream_src LO
+    lda zp_block_data+1
+    adc #0
+    sta vgm_streams + VGM_STREAMS*1, x  ; zp_stream_src HI
+endif
+    ; init the rest
+IF MASTER
+    stz vgm_streams + VGM_STREAMS*0, x  ; literal cnt 
+    stz vgm_streams + VGM_STREAMS*1, x  ; literal cnt 
+    stz vgm_streams + VGM_STREAMS*2, x  ; match cnt 
+    stz vgm_streams + VGM_STREAMS*3, x  ; match cnt 
+    stz vgm_streams + VGM_STREAMS*4, x  ; window src ptr 
+    stz vgm_streams + VGM_STREAMS*5, x  ; window dst ptr 
+ELSE
+    lda #0
+    sta vgm_streams + VGM_STREAMS*0, x  ; literal cnt 
+    sta vgm_streams + VGM_STREAMS*1, x  ; literal cnt 
+    sta vgm_streams + VGM_STREAMS*2, x  ; match cnt 
+    sta vgm_streams + VGM_STREAMS*3, x  ; match cnt 
+    sta vgm_streams + VGM_STREAMS*4, x  ; window src ptr 
+    sta vgm_streams + VGM_STREAMS*5, x  ; window dst ptr 
+ENDIF
+
+    ; setup RLE tables
+    lda #1
+    sta vgm_register_counts, X
+
+    ; move to next block
+    ; jsr vgm_next_block
+
+    ; for all 8 blocks / streams
+    inx
+    cpx #8
+    bne block_loop
+
+    rts
+
 ; Prepare the data for streaming (passed in X/Y)
-    jmp vgm_stream_mount
+    ;jmp vgm_stream_mount
 }
 
 ;-------------------------------------------
@@ -140,19 +195,7 @@ ENDIF
     rts
 
 .finished
-    ; end of tune reached
-    lda vgm_loop
-    beq no_looping
-    ; restart if looping
-    ldx vgm_source+0
-    ldy vgm_source+1
-    lda vgm_loop
-    asl a ; -> C
-    lda vgm_buffers
-    jsr vgm_init
-    jmp vgm_update
-.no_looping 
-    ; no looping so set flag & stop PSG
+    ; end of tune reached, set flag & stop PSG
     sty vgm_finished    ; any NZ value is fine, in this case 0x08
     jmp sn_reset ; also returns non-zero in A
 }
@@ -225,26 +268,21 @@ LZ4_FORMAT = FALSE
 ; local vgm workspace
 ;-------------------------------------------
 
-VGM_STREAM_CONTEXT_SIZE = 8 ; number of bytes total workspace for a stream
+VGM_STREAM_CONTEXT_SIZE = 6 ; number of bytes total workspace for a stream
 VGM_STREAMS = 8
 
 ;ALIGN 16 ; doesnt have to be aligned, just for debugging ease
 .vgm_streams ; decoder contexts - 8 bytes per stream, 8 streams (64 bytes)
     skip  VGM_STREAMS*VGM_STREAM_CONTEXT_SIZE
-    ; 0 zp_stream_src     ; stream data ptr LO/HI
-    ; 2 zp_literal_cnt    ; literal count LO/HI
-    ; 4 zp_match_cnt      ; match count LO/HI
-    ; 6 lz_window_src     ; window read ptr - index
-    ; 7 lz_window_dst     ; window write ptr - index
-    ; 8 zp_huff_bitbuffer ; 1 byte, referenced by inner loop
-    ; 9 huff_bitsleft     ; 1 byte, referenced by inner loop
+    ; 0 zp_literal_cnt    ; literal count LO/HI
+    ; 2 zp_match_cnt      ; match count LO/HI
+    ; 4 lz_window_src     ; window read ptr - index
+    ; 5 lz_window_dst     ; window write ptr - index
 
 .vgm_buffers  equb 0    ; the HI byte of the address where the buffers are stored
 .vgm_finished equb 0    ; a flag to indicate player has reached the end of the vgm stream
 .vgm_flags  equb 0      ; flags for current vgm file. bit7 set stream is huffman coded. bit 6 set if stream is 16-bit LZ4 offsets
 .vgm_temp equb 0        ; used by vgm_update_register1()
-.vgm_loop equb 0        ; non zero if tune is to be looped
-.vgm_source equw 0      ; vgm data address
 .firstbyte equb 0
 ; 8 counters for VGM register update counters (RLE)
 .vgm_register_counts
@@ -266,6 +304,7 @@ VGM_STREAMS = 8
     equb 0, 0, 0
 
 
+if 0
 ; VGC file parsing - Skip to the next block. 
 ; on entry zp_block_data points to current block (header)
 ; on exit zp_block_data points to next block
@@ -294,7 +333,9 @@ VGM_STREAMS = 8
     sta zp_block_data+1
     rts
 }
+endif
 
+if 0
 ; VGC file parsing - Initialise the system for the provided in-memory VGC data stream.
 ; On entry X/Y point to Lo/Hi address of the vgc data
 .vgm_stream_mount
@@ -376,6 +417,7 @@ ENDIF
 
     rts
 }
+endif
 
 ;----------------------------------------------------------------------
 ; fetch register data byte from register stream selected in A
@@ -397,25 +439,25 @@ ENDIF
 
     ; since we have 8 separately compressed register streams
     ; we have to load the required decoder context to ZP
-    lda vgm_streams + VGM_STREAMS*0, x
-    sta zp_stream_src + 0
-    lda vgm_streams + VGM_STREAMS*1, x
-    sta zp_stream_src + 1
+;    lda vgm_streams + VGM_STREAMS*0, x
+;    sta zp_stream_src + 0
+;    lda vgm_streams + VGM_STREAMS*1, x
+;    sta zp_stream_src + 1
 
-    lda vgm_streams + VGM_STREAMS*2, x
+    lda vgm_streams + VGM_STREAMS*0, x
     sta zp_literal_cnt + 0
-    lda vgm_streams + VGM_STREAMS*3, x
+    lda vgm_streams + VGM_STREAMS*1, x
     sta zp_literal_cnt + 1
 
-    lda vgm_streams + VGM_STREAMS*4, x
+    lda vgm_streams + VGM_STREAMS*2, x
     sta zp_match_cnt + 0
-    lda vgm_streams + VGM_STREAMS*5, x
+    lda vgm_streams + VGM_STREAMS*3, x
     sta zp_match_cnt + 1
 
-    lda vgm_streams + VGM_STREAMS*6, x
+    lda vgm_streams + VGM_STREAMS*4, x
     sta lz_window_src   ; **SELF MODIFY** not ZP
 
-    lda vgm_streams + VGM_STREAMS*7, x
+    lda vgm_streams + VGM_STREAMS*5, x
     sta lz_window_dst   ; **SELF MODIFY** not ZP
 
     ; then fetch a decompressed byte
@@ -426,26 +468,26 @@ ENDIF
 .loadX
     ldx #0  ; *** SELF MODIFIED - See above ***
 
-    lda zp_stream_src + 0
-    sta vgm_streams + VGM_STREAMS*0, x
-    lda zp_stream_src + 1
-    sta vgm_streams + VGM_STREAMS*1, x
+;    lda zp_stream_src + 0
+;    sta vgm_streams + VGM_STREAMS*0, x
+;    lda zp_stream_src + 1
+;    sta vgm_streams + VGM_STREAMS*1, x
 
     lda zp_literal_cnt + 0
-    sta vgm_streams + VGM_STREAMS*2, x
+    sta vgm_streams + VGM_STREAMS*0, x
     lda zp_literal_cnt + 1
-    sta vgm_streams + VGM_STREAMS*3, x
+    sta vgm_streams + VGM_STREAMS*1, x
 
     lda zp_match_cnt + 0
-    sta vgm_streams + VGM_STREAMS*4, x
+    sta vgm_streams + VGM_STREAMS*2, x
     lda zp_match_cnt + 1
-    sta vgm_streams + VGM_STREAMS*5, x
+    sta vgm_streams + VGM_STREAMS*3, x
 
     lda lz_window_src
-    sta vgm_streams + VGM_STREAMS*6, x
+    sta vgm_streams + VGM_STREAMS*4, x
 
     lda lz_window_dst
-    sta vgm_streams + VGM_STREAMS*7, x
+    sta vgm_streams + VGM_STREAMS*5, x
 
 .loadA
     lda #0 ;[2](2) - ***SELF MODIFIED - See above ***
