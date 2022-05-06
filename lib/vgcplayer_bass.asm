@@ -78,16 +78,7 @@ ENDIF
     ; clear vgm finished flag
     stx vgm_finished
 .block_loop
- if 0
-    ; get start address of encoded data for vgm_stream[x] (block ptr+4)
-    lda zp_block_data+0
-    clc
-    adc #4  ; skip block header
-    sta vgm_streams + VGM_STREAMS*0, x  ; zp_stream_src LO
-    lda zp_block_data+1
-    adc #0
-    sta vgm_streams + VGM_STREAMS*1, x  ; zp_stream_src HI
-endif
+
     ; init the rest
 IF MASTER
     stz vgm_streams + VGM_STREAMS*0, x  ; literal cnt 
@@ -331,90 +322,6 @@ if 0
     lda zp_block_data+1
     adc zp_block_size+1
     sta zp_block_data+1
-    rts
-}
-endif
-
-if 0
-; VGC file parsing - Initialise the system for the provided in-memory VGC data stream.
-; On entry X/Y point to Lo/Hi address of the vgc data
-.vgm_stream_mount
-{
-    ; parse data stream
-    ; VGC broadly uses LZ4 frame & block formats for convenience
-    ; however there are assumptions for format:
-    ;  Magic number[4], Flags[1], MaxBlockSize[1], Header checksum[1]
-    ;  Contains 8 blocks
-    ; Obviously since this is an 8-bit CPU no files or blocks can be > 64Kb in size
-
-    ; VGC streams have a different magic number to LZ4
-    ; [56 47 43 XX]
-    ; where XX:
-    ; bit 6 - LZ 8 bit (0) or 16 bit (1) [unsupported atm]
-    ; bit 7 - Huffman (1) or no huffman (0)
-
-    stx zp_block_data+0
-    sty zp_block_data+1
-
-    ; get the stream flags (huffman/8 or 16 bit offsets)
-    ldy #3
-    lda (zp_block_data), y
-    sta vgm_flags
-
-    ; Skip frame header, and move to first block
-    lda zp_block_data+0
-    clc
-    adc #7
-    sta zp_block_data+0
-    bcc no_block_hi
-    inc zp_block_data+1
-.no_block_hi
-
-    ; read the block headers (size)
-    ldx #0
-    ; clear vgm finished flag
-    stx vgm_finished
-.block_loop
- 
-    ; get start address of encoded data for vgm_stream[x] (block ptr+4)
-    lda zp_block_data+0
-    clc
-    adc #4  ; skip block header
-    sta vgm_streams + VGM_STREAMS*0, x  ; zp_stream_src LO
-    lda zp_block_data+1
-    adc #0
-    sta vgm_streams + VGM_STREAMS*1, x  ; zp_stream_src HI
-
-    ; init the rest
-IF MASTER
-    stz vgm_streams + VGM_STREAMS*2, x  ; literal cnt 
-    stz vgm_streams + VGM_STREAMS*3, x  ; literal cnt 
-    stz vgm_streams + VGM_STREAMS*4, x  ; match cnt 
-    stz vgm_streams + VGM_STREAMS*5, x  ; match cnt 
-    stz vgm_streams + VGM_STREAMS*6, x  ; window src ptr 
-    stz vgm_streams + VGM_STREAMS*7, x  ; window dst ptr 
-ELSE
-    lda #0
-    sta vgm_streams + VGM_STREAMS*2, x  ; literal cnt 
-    sta vgm_streams + VGM_STREAMS*3, x  ; literal cnt 
-    sta vgm_streams + VGM_STREAMS*4, x  ; match cnt 
-    sta vgm_streams + VGM_STREAMS*5, x  ; match cnt 
-    sta vgm_streams + VGM_STREAMS*6, x  ; window src ptr 
-    sta vgm_streams + VGM_STREAMS*7, x  ; window dst ptr 
-ENDIF
-
-    ; setup RLE tables
-    lda #1
-    sta vgm_register_counts, X
-
-    ; move to next block
-    jsr vgm_next_block
-
-    ; for all 8 blocks
-    inx
-    cpx #8
-    bne block_loop
-
     rts
 }
 endif
