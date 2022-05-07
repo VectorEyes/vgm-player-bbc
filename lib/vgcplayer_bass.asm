@@ -294,38 +294,6 @@ VGM_STREAMS = 8
 .bass_flag
     equb 0, 0, 0
 
-
-if 0
-; VGC file parsing - Skip to the next block. 
-; on entry zp_block_data points to current block (header)
-; on exit zp_block_data points to next block
-; Clobbers Y
-.vgm_next_block
-{
-    ; read 16-bit block size to zp_block_size
-    ; +4 to compensate for block header
-    ldy #0
-    lda (zp_block_data),Y
-    clc
-    adc #4
-    sta zp_block_size+0
-    iny
-    lda (zp_block_data),Y
-    adc #0
-    sta zp_block_size+1
-
-    ; move to next block
-    lda zp_block_data+0
-    clc
-    adc zp_block_size+0
-    sta zp_block_data+0
-    lda zp_block_data+1
-    adc zp_block_size+1
-    sta zp_block_data+1
-    rts
-}
-endif
-
 ;----------------------------------------------------------------------
 ; fetch register data byte from register stream selected in A
 ; This byte will be LZ4 encoded
