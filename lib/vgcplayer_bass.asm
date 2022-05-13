@@ -8,7 +8,6 @@
 ;---------------------------------------------------------------
 ; VGM Player Library code
 ;---------------------------------------------------------------
-MASTER=1
 IF MASTER
 	CPU 1
 ENDIF
@@ -45,75 +44,6 @@ VGM_FX_TONE1_HI = 9
 VGM_FX_TONE2_HI = 10
 
 ENDIF
-
-;-------------------------------------------
-; vgm_init
-;-------------------------------------------
-; Initialise playback routine
-;  A points to HI byte of a page aligned 2Kb RAM buffer address
-;  X/Y point to the VGC data stream to be played
-;  C=1 for looped playback
-;-------------------------------------------
-.vgm_init
-{
-    ; stash the 2kb buffer address
-    sta vgm_buffers
- 
-    ; For VGX we simply increment stream source by 4, skipping the 'VGX<0>' magic number header
-    ; stash the data source addr for looping
-    ;stx zp_stream_src+0
-    ;sty zp_stream_src+1
-
-    txa
-    CLC
-    ADC #4
-    STA zp_stream_src+0
-    BCC storeHighStreamSourceAddress
-    INY
-    .storeHighStreamSourceAddress
-    STY zp_stream_src+1
-
-   ; read the block headers (size)
-    ldx #0
-    ; clear vgm finished flag
-    stx vgm_finished
-.block_loop
-
-    ; init the rest
-IF MASTER
-    stz vgm_streams + VGM_STREAMS*0, x  ; literal cnt 
-    stz vgm_streams + VGM_STREAMS*1, x  ; literal cnt 
-    stz vgm_streams + VGM_STREAMS*2, x  ; match cnt 
-    stz vgm_streams + VGM_STREAMS*3, x  ; match cnt 
-    stz vgm_streams + VGM_STREAMS*4, x  ; window src ptr 
-    stz vgm_streams + VGM_STREAMS*5, x  ; window dst ptr 
-ELSE
-    lda #0
-    sta vgm_streams + VGM_STREAMS*0, x  ; literal cnt 
-    sta vgm_streams + VGM_STREAMS*1, x  ; literal cnt 
-    sta vgm_streams + VGM_STREAMS*2, x  ; match cnt 
-    sta vgm_streams + VGM_STREAMS*3, x  ; match cnt 
-    sta vgm_streams + VGM_STREAMS*4, x  ; window src ptr 
-    sta vgm_streams + VGM_STREAMS*5, x  ; window dst ptr 
-ENDIF
-
-    ; setup RLE tables
-    lda #1
-    sta vgm_register_counts, X
-
-    ; move to next block
-    ; jsr vgm_next_block
-
-    ; for all 8 blocks / streams
-    inx
-    cpx #8
-    bne block_loop
-
-    rts
-
-; Prepare the data for streaming (passed in X/Y)
-    ;jmp vgm_stream_mount
-}
 
 ;-------------------------------------------
 ; vgm_update
@@ -252,15 +182,10 @@ ENDIF
 ; Not user callable.
 ;-------------------------------------------
 
-; LZ4_FORMAT is a legacy define. May get reactivated if we ever do the full lz4 support
-LZ4_FORMAT = FALSE
 
 ;-------------------------------------------
 ; local vgm workspace
 ;-------------------------------------------
-
-VGM_STREAM_CONTEXT_SIZE = 6 ; number of bytes total workspace for a stream
-VGM_STREAMS = 8
 
 ;ALIGN 16 ; doesnt have to be aligned, just for debugging ease
 .vgm_streams ; decoder contexts - 8 bytes per stream, 8 streams (64 bytes)
@@ -1007,13 +932,6 @@ ENDIF
     ;sbc zp_temp
     sta lz_window_src + 0 ; *** SELF MODIFYING CODE ***
 
-IF LZ4_FORMAT
-    ; fetch match offset HI, but ignore it.
-    ; this implementation only supports 8-bit windows.
-.fetchByte4
-    jsr lz_fetch_byte    
-ENDIF
-
     ; fetch match length
     lda zp_match_cnt+0
     jsr lz_fetch_count
@@ -1135,8 +1053,6 @@ ENDIF
 
 
 .decoder_end
-
-
 
 
 PRINT "    decoder code size is ", (decoder_end-decoder_start), " bytes"
